@@ -4,111 +4,72 @@ import time
 import random
 from datetime import datetime
 from utils import apply_custom_css, render_timer, generate_result_txt
-from database import init_db, save_result
+from database import save_result
 from auth import require_login
 
-# 1. Config & Setup
 st.set_page_config(page_title="FastExam", page_icon="🔬", layout="centered")
 apply_custom_css()
-init_db() # Ensure DB is created
-require_login() # Ask for Student Name
+require_login()
 
-# 2. Session State
 if 'exam_started' not in st.session_state: st.session_state.exam_started = False
 if 'submitted' not in st.session_state: st.session_state.submitted = False
 if 'end_time' not in st.session_state: st.session_state.end_time = None
 if 'user_answers' not in st.session_state: st.session_state.user_answers = {}
-if 'game_result' not in st.session_state: st.session_state.game_result = ""
 
-# 3. Load Data
-if 'questions' not in st.session_state:
-    try:
+try:
+    if 'questions' not in st.session_state:
         df = pd.read_csv("questions.csv")
         st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
-    except:
-        st.error("Teacher Notice: 'questions.csv' is missing. Please upload it via the Admin panel.")
-        st.stop()
+    df = st.session_state.questions
+except:
+    st.error("CSV file missing.")
+    st.stop()
 
-df = st.session_state.questions
 total_qs = len(df)
 time_limit_secs = total_qs * 60
 
-st.title(f"FastExam - {st.session_state.student_name}")
-
-# --- START SCREEN ---
 if not st.session_state.exam_started and not st.session_state.submitted:
-    st.info(f"📋 Questions: **{total_qs}** | ⏳ Time: **{total_qs} Minutes**")
-    
-    with st.expander("🎮 Warm-up: Rock-Paper-Scissors", expanded=False):
-        choices =['🪨 Rock', '📄 Paper', '✂️ Scissors']
-        cols = st.columns(3)
-        def play_rps(u_choice):
-            b_choice = random.choice(choices)
-            if u_choice == b_choice: st.session_state.game_result = f"Computer chose {b_choice}. Tie! 🤝"
-            elif (u_choice=='🪨 Rock' and b_choice=='✂️ Scissors') or (u_choice=='📄 Paper' and b_choice=='🪨 Rock') or (u_choice=='✂️ Scissors' and b_choice=='📄 Paper'):
-                st.session_state.game_result = f"Computer chose {b_choice}. You Win! 🎉"
-            else: st.session_state.game_result = f"Computer chose {b_choice}. You Lose! 😢"
+    st.title(f"Welcome, {st.session_state.student_name}")
+    with st.expander("🎮 Play Rock-Paper-Scissors"):
+        c = st.columns(3)
+        choice = None
+        if c[0].button("Rock"): choice = "Rock"
+        if c[1].button("Paper"): choice = "Paper"
+        if c[2].button("Scissors"): choice = "Scissors"
+        if choice: st.write(f"Computer chose {random.choice(['Rock', 'Paper', 'Scissors'])}!")
 
-        with cols[0]: 
-            if st.button("🪨 Rock", use_container_width=True): play_rps('🪨 Rock')
-        with cols[1]: 
-            if st.button("📄 Paper", use_container_width=True): play_rps('📄 Paper')
-        with cols[2]: 
-            if st.button("✂️ Scissors", use_container_width=True): play_rps('✂️ Scissors')
-            
-        if st.session_state.game_result: st.write(st.session_state.game_result)
-
-    if st.button("🚀 Start Exam Now", use_container_width=True, type="primary"):
+    if st.button("🚀 Start Exam", use_container_width=True, type="primary"):
         st.session_state.end_time = time.time() + time_limit_secs
         st.session_state.exam_started = True
         st.rerun()
 
-# --- EXAM SCREEN ---
 elif st.session_state.exam_started and not st.session_state.submitted:
-    remaining = int(st.session_state.end_time - time.time())
-    if remaining <= 0:
+    rem = int(st.session_state.end_time - time.time())
+    if rem <= 0:
         st.session_state.submitted = True
         st.session_state.exam_started = False
         st.rerun()
-
-    render_timer(remaining)
-
-    with st.form("exam_form"):
-        temp_answers = {}
-        for i, row in df.iterrows():
-            st.markdown(f"<div class='q-text'>Q{i+1}. {row['Question']}</div>", unsafe_allow_html=True)
-            options = [row['Option A'], row['Option B'], row['Option C'], row['Option D']]
-            temp_answers[i] = st.radio("Select:", options, index=None, key=f"q{i}", label_visibility="collapsed")
-            st.write("---")
-        
+    render_timer(rem)
+    with st.form("exam"):
+        u_ans = {}
+        for i, r in df.iterrows():
+            st.markdown(f"<div class='q-text'>Q{i+1}. {r['Question']}</div>", unsafe_allow_html=True)
+            u_ans[i] = st.radio("Ans:", [r['Option A'], r['Option B'], r['Option C'], r['Option D']], index=None, key=f"q{i}", label_visibility="collapsed")
         if st.form_submit_button("Submit Exam", type="primary", use_container_width=True):
-            st.session_state.user_answers = temp_answers
+            st.session_state.user_answers = u_ans
             st.session_state.submitted = True
             st.session_state.exam_started = False
-            
-            # --- SAVE TO DATABASE ---
-            score = sum(1 for i, row in df.iterrows() if str(temp_answers.get(i)) == str(row['Correct Answer']))
+            score = sum(1 for i, r in df.iterrows() if str(u_ans.get(i)) == str(r['Correct Answer']))
             save_result(st.session_state.student_name, score, total_qs, (score/total_qs)*100, datetime.now().strftime("%Y-%m-%d %H:%M"))
             st.rerun()
 
-# --- RESULT SCREEN ---
 elif st.session_state.submitted:
-    st.header("📊 Exam Statistics")
-    score = sum(1 for i, row in df.iterrows() if str(st.session_state.user_answers.get(i)) == str(row['Correct Answer']))
-    perc = (score / total_qs) * 100
-    st.subheader(f"Final Score: {score} / {total_qs} ({perc:.1f}%)")
-    
-    st.download_button("📥 Download Detailed Result Card", data=generate_result_txt(score, total_qs, df, st.session_state.user_answers), file_name="FastExam_Result.txt", mime="text/plain")
-
-    with st.expander("🔍 Click to review your mistakes"):
-        for i, row in df.iterrows():
-            if str(st.session_state.user_answers.get(i)) != str(row['Correct Answer']):
-                st.error(f"**Q{i+1}: {row['Question']}**")
-                st.write(f"❌ Your Answer: {st.session_state.user_answers.get(i)}")
-                st.success(f"✅ Right Answer: {row['Correct Answer']}")
-                st.divider()
-
-    if st.button("🔄 Restart"):
-        for key in['exam_started', 'submitted', 'end_time', 'user_answers', 'questions', 'game_result', 'student_name']:
-            if key in st.session_state: del st.session_state[key]
+    st.title("📊 Results")
+    u_ans = st.session_state.user_answers
+    score = sum(1 for i, r in df.iterrows() if str(u_ans.get(i)) == str(r['Correct Answer']))
+    st.subheader(f"Score: {score}/{total_qs} ({round(score/total_qs*100,1)}%)")
+    st.download_button("📥 Download Result Card", data=generate_result_txt(score, total_qs, df, u_ans), file_name="Result.txt")
+    if st.button("Restart"):
+        for k in ['exam_started','submitted','end_time','user_answers','questions','student_name']:
+            if k in st.session_state: del st.session_state[k]
         st.rerun()
