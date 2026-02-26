@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime
+import streamlit.components.v1 as components
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
@@ -10,50 +11,40 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- 2. STYLING & FIXING VISIBILITY ---
+# --- 2. CSS STYLING (Forcing Visibility for Dark Mode) ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Footer Styling */
+    /* Force Light background for Footer to contrast with black */
     .footer {
         position: fixed; left: 0; bottom: 0; width: 100%;
-        background-color: #f1f1f1 !important; color: #333 !important; text-align: center;
-        padding: 10px; font-weight: bold; border-top: 2px solid #007bff; z-index: 100;
+        background-color: #f1f1f1 !important; color: #333 !important; 
+        text-align: center; padding: 10px; font-weight: bold; 
+        border-top: 2px solid #007bff; z-index: 100;
     }
     
-    /* Timer Box - Fixed Visibility for Dark/Light Mode */
-    .timer-container {
-        position: fixed; 
-        top: 70px; 
-        right: 20px;
-        background-color: #ffeb3b !important; /* Bright Yellow Background */
-        color: #000000 !important;           /* Black Text */
-        padding: 15px; 
-        border: 3px solid #f44336;
-        border-radius: 12px; 
-        z-index: 9999; 
-        font-size: 22px; 
-        font-weight: bold;
-        box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+    /* Styling Radio Buttons for readability */
+    .stRadio [data-testid="stWidgetLabel"] p {
+        font-size: 18px !important;
+        font-weight: bold !important;
+        color: #4da3ff !important;
     }
 
-    .question-style {
-        font-size: 20px;
-        font-weight: 600;
-        color: #FFFFFF;
-        background-color: #1E3A8A;
-        padding: 10px;
-        border-radius: 5px;
+    /* Fixing question text visibility */
+    .q-text {
+        font-size: 1.1rem;
+        font-weight: 500;
         margin-top: 20px;
+        color: white;
     }
     </style>
     <div class="footer">Made by Imran</div>
     """, unsafe_allow_html=True)
 
-# --- 3. SESSION STATE INITIALIZATION ---
+# --- 3. SESSION STATE ---
 if 'exam_started' not in st.session_state:
     st.session_state.exam_started = False
 if 'submitted' not in st.session_state:
@@ -62,134 +53,131 @@ if 'end_time' not in st.session_state:
     st.session_state.end_time = None
 if 'user_answers' not in st.session_state:
     st.session_state.user_answers = {}
+
+# --- 4. DATA LOADING ---
 if 'questions' not in st.session_state:
     try:
         df = pd.read_csv("questions.csv")
-        # Store questions in session to prevent shuffling on every click
         st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
-    except Exception as e:
-        st.error(f"Error: Ensure 'questions.csv' exists. ({e})")
+    except:
+        st.error("Error: 'questions.csv' not found.")
         st.stop()
 
-# --- 4. TIMER LOGIC (JavaScript) ---
-def display_timer(seconds_left):
-    # JS countdown that works even if Python is busy
+# --- 5. ROBUST TIMER LOGIC ---
+def render_timer(seconds_left):
+    # This HTML component is isolated. It uses a yellow box and red text.
+    # It communicates back to Python using the standard 'primary' button click.
     timer_html = f"""
-        <div id="timer-box" class="timer-container">
-            ⏳ <span id="time-display">--:--</span>
-        </div>
-        <script>
-        var duration = {seconds_left};
-        var display = document.querySelector('#time-display');
-        var timer = duration, minutes, seconds;
-        
-        var interval = setInterval(function () {{
-            minutes = parseInt(timer / 60, 10);
-            seconds = parseInt(timer % 60, 10);
+    <div style="
+        background-color: #ffeb3b; 
+        padding: 10px; 
+        border-radius: 10px; 
+        text-align: center; 
+        border: 3px solid #f44336;
+        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
+    ">
+        <span style="font-size: 24px; font-weight: bold; color: black; font-family: sans-serif;">
+            ⏳ <span id="time">--:--</span>
+        </span>
+    </div>
 
-            minutes = minutes < 10 ? "0" + minutes : minutes;
-            seconds = seconds < 10 ? "0" + seconds : seconds;
-
-            display.textContent = minutes + ":" + seconds;
-
-            if (--timer < 0) {{
-                clearInterval(interval);
-                display.textContent = "00:00";
-                // Trigger the hidden submit button if time runs out
-                window.parent.document.querySelector('button[kind="primary"]').click();
-            }}
-        }}, 1000);
-        </script>
-    """
-    st.markdown(timer_html, unsafe_allow_html=True)
-
-# --- 5. RESULT CARD GENERATOR ---
-def generate_result_card(score, total, df, user_answers):
-    perc = (score / total) * 100
-    card = f"FAST EXAM - RESULT CARD\n"
-    card += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    card += f"Final Score: {score} / {total} ({perc:.1f}%)\n"
-    card += "========================================\n\n"
+    <script>
+    var timeLeft = {seconds_left};
+    var timerDisplay = document.getElementById('time');
     
-    wrong_questions = []
+    function updateTimer() {{
+        var minutes = Math.floor(timeLeft / 60);
+        var seconds = timeLeft % 60;
+        
+        timerDisplay.innerHTML = (minutes < 10 ? "0" + minutes : minutes) + ":" + 
+                                 (seconds < 10 ? "0" + seconds : seconds);
+        
+        if (timeLeft <= 0) {{
+            // Force submit by finding the primary button in the parent window
+            window.parent.document.querySelector('button[kind="primary"]').click();
+        }} else {{
+            timeLeft--;
+            setTimeout(updateTimer, 1000);
+        }}
+    }}
+    updateTimer();
+    </script>
+    """
+    # Use a fixed height sidebar container for the timer
+    with st.sidebar:
+        st.markdown("### ⏲️ Exam Clock")
+        components.html(timer_html, height=100)
+
+# --- 6. RESULT CARD GENERATOR ---
+def generate_result_txt(score, total, df, user_answers):
+    report = f"--- FAST EXAM RESULT CARD ---\n"
+    report += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    report += f"Final Score: {score} / {total} ({round(score/total*100, 1)}%)\n"
+    report += "-------------------------------------------\n\n"
+    
+    report += "REVIEW OF INCORRECT ANSWERS:\n\n"
+    
+    incorrect_found = False
     for i, row in df.iterrows():
-        u_ans = user_answers.get(i)
-        c_ans = row['Correct Answer']
-        if str(u_ans) != str(c_ans):
-            wrong_questions.append({
-                "q": row['Question'],
-                "mine": u_ans if u_ans else "Not Answered",
-                "correct": c_ans
-            })
+        ans = user_answers.get(i)
+        if str(ans) != str(row['Correct Answer']):
+            incorrect_found = True
+            report += f"Q{i+1}: {row['Question']}\n"
+            report += f"   - Your Answer: {ans if ans else 'None'}\n"
+            report += f"   - Correct Answer: {row['Correct Answer']}\n"
+            report += f"{'-'*40}\n"
             
-    if not wrong_questions:
-        card += "EXCELLENT! You got every question correct.\n"
-    else:
-        card += "REVIEW OF INCORRECT ANSWERS:\n\n"
-        for idx, item in enumerate(wrong_questions):
-            card += f"{idx+1}) QUESTION: {item['q']}\n"
-            card += f"   - Your Answer: {item['mine']}\n"
-            card += f"   - Right Answer: {item['correct']}\n"
-            card += "----------------------------------------\n"
-            
-    return card
+    if not incorrect_found:
+        report += "PERFECT SCORE! No errors found."
+        
+    return report
 
-# --- 6. MAIN APP FLOW ---
-
+# --- 7. APP LOGIC ---
 df = st.session_state.questions
 total_qs = len(df)
-time_limit_secs = total_qs * 60  # Auto: 1 min per question
+time_limit_secs = total_qs * 60  # Auto calculate 1 min per question
 
 st.title("FastExam")
 
-# SCREEN 1: START
+# SCREEN: START
 if not st.session_state.exam_started and not st.session_state.submitted:
-    st.markdown(f"### Total Questions found: `{total_qs}`")
-    st.write(f"⏱️ You will have **{total_qs} minutes** to complete the exam.")
-    st.info("The timer will appear in the top-right corner once you start.")
-    
+    st.info(f"📋 Questions: **{total_qs}** | ⏳ Time: **{total_qs} Minutes**")
     if st.button("🚀 Start Exam Now", use_container_width=True):
         st.session_state.end_time = time.time() + time_limit_secs
         st.session_state.exam_started = True
         st.rerun()
 
-# SCREEN 2: EXAM IN PROGRESS
+# SCREEN: EXAM
 elif st.session_state.exam_started and not st.session_state.submitted:
-    # Calculate time remaining
+    # Check current time
     remaining = int(st.session_state.end_time - time.time())
     
-    # Check if time is up
     if remaining <= 0:
         st.session_state.submitted = True
         st.session_state.exam_started = False
         st.rerun()
 
-    # Show visible JS timer
-    display_timer(remaining)
+    # Call the fixed timer
+    render_timer(remaining)
 
-    # Use form to prevent laggy reruns on every selection
-    with st.form("quiz_form"):
-        current_selection = {}
+    with st.form("exam_form"):
+        temp_answers = {}
         for i, row in df.iterrows():
-            st.markdown(f"<div class='question-style'>Q{i+1}. {row['Question']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='q-text'>Q{i+1}. {row['Question']}</div>", unsafe_allow_html=True)
             options = [row['Option A'], row['Option B'], row['Option C'], row['Option D']]
-            current_selection[i] = st.radio(
-                f"Select for Q{i}", options, 
-                index=None, key=f"q{i}", label_visibility="collapsed"
-            )
-            st.write("")
+            temp_answers[i] = st.radio("Select:", options, index=None, key=f"q{i}", label_visibility="collapsed")
+            st.write("---")
         
-        # This button is used for manual submission and targeted by the timer JS
-        submitted_manually = st.form_submit_button("Submit Exam", type="primary")
-        if submitted_manually:
-            st.session_state.user_answers = current_selection
+        # Primary button used by JS for auto-submit
+        if st.form_submit_button("Submit Exam", type="primary", use_container_width=True):
+            st.session_state.user_answers = temp_answers
             st.session_state.submitted = True
             st.session_state.exam_started = False
             st.rerun()
 
-# SCREEN 3: RESULTS
+# SCREEN: RESULTS
 elif st.session_state.submitted:
-    st.header("📊 Exam Results")
+    st.header("📊 Exam Statistics")
     
     score = 0
     u_ans = st.session_state.user_answers
@@ -198,34 +186,27 @@ elif st.session_state.submitted:
             score += 1
             
     perc = (score / total_qs) * 100
-    st.subheader(f"Score: {score} / {total_qs} ({perc:.1f}%)")
-
-    # Result Card Download
-    result_card_txt = generate_result_card(score, total_qs, df, u_ans)
+    st.subheader(f"Final Score: {score} / {total_qs} ({perc:.1f}%)")
+    
+    # Download Card
+    result_txt = generate_result_txt(score, total_qs, df, u_ans)
     st.download_button(
-        label="📥 Download Result Card (TXT File)",
-        data=result_card_txt,
-        file_name=f"FastExam_Result_{datetime.now().strftime('%M%S')}.txt",
+        label="📥 Download Detailed Result Card",
+        data=result_txt,
+        file_name="FastExam_Result.txt",
         mime="text/plain"
     )
 
-    # UI Review of Wrong Answers
-    with st.expander("🔍 View All Incorrect Answers"):
-        has_wrong = False
+    # Detailed Review for wrong ones
+    with st.expander("🔍 Click to review your mistakes"):
         for i, row in df.iterrows():
             if str(u_ans.get(i)) != str(row['Correct Answer']):
-                has_wrong = True
                 st.error(f"**Q{i+1}: {row['Question']}**")
                 st.write(f"❌ Your Answer: {u_ans.get(i)}")
-                st.success(f"✅ Correct Answer: {row['Correct Answer']}")
+                st.success(f"✅ Right Answer: {row['Correct Answer']}")
                 st.divider()
-        if not has_wrong:
-            st.balloons()
-            st.success("Perfect Score! No errors to show.")
 
-    if st.button("🔄 Restart Exam"):
-        # Reset everything
+    if st.button("🔄 Try Again"):
         for key in ['exam_started', 'submitted', 'end_time', 'user_answers', 'questions']:
-            if key in st.session_state:
-                del st.session_state[key]
+            if key in st.session_state: del st.session_state[key]
         st.rerun()
