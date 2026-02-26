@@ -3,6 +3,7 @@ import pandas as pd
 import time
 from datetime import datetime
 import streamlit.components.v1 as components
+import random
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
@@ -27,7 +28,7 @@ st.markdown("""
     }
     
     /* Styling Radio Buttons for readability */
-    .stRadio [data-testid="stWidgetLabel"] p {
+    .stRadio[data-testid="stWidgetLabel"] p {
         font-size: 18px !important;
         font-weight: bold !important;
         color: #4da3ff !important;
@@ -53,6 +54,8 @@ if 'end_time' not in st.session_state:
     st.session_state.end_time = None
 if 'user_answers' not in st.session_state:
     st.session_state.user_answers = {}
+if 'game_result' not in st.session_state:
+    st.session_state.game_result = ""
 
 # --- 4. DATA LOADING ---
 if 'questions' not in st.session_state:
@@ -63,10 +66,8 @@ if 'questions' not in st.session_state:
         st.error("Error: 'questions.csv' not found.")
         st.stop()
 
-# --- 5. ROBUST TIMER LOGIC ---
+# --- 5. ROBUST TIMER LOGIC (WITH SCROLL FIX) ---
 def render_timer(seconds_left):
-    # This HTML component is isolated. It uses a yellow box and red text.
-    # It communicates back to Python using the standard 'primary' button click.
     timer_html = f"""
     <div style="
         background-color: #ffeb3b; 
@@ -84,6 +85,7 @@ def render_timer(seconds_left):
     <script>
     var timeLeft = {seconds_left};
     var timerDisplay = document.getElementById('time');
+    var parentDoc = window.parent.document;
     
     function updateTimer() {{
         var minutes = Math.floor(timeLeft / 60);
@@ -94,16 +96,27 @@ def render_timer(seconds_left):
         
         if (timeLeft <= 0) {{
             // Force submit by finding the primary button in the parent window
-            window.parent.document.querySelector('button[kind="primary"]').click();
+            parentDoc.querySelector('button[kind="primary"]').click();
         }} else {{
             timeLeft--;
             setTimeout(updateTimer, 1000);
         }}
     }}
     updateTimer();
+
+    // --- SCROLL FIX: Prevent scroll wheel/swipes from changing radio buttons ---
+    function removeRadioFocus() {{
+        let activeEl = parentDoc.activeElement;
+        if (activeEl && activeEl.tagName.toLowerCase() === 'input' && activeEl.type === 'radio') {{
+            activeEl.blur(); // Instantly removes focus to stop accidental switching
+        }}
+    }}
+    
+    parentDoc.addEventListener('wheel', removeRadioFocus, {{passive: true}});
+    parentDoc.addEventListener('touchmove', removeRadioFocus, {{passive: true}});
+    // --------------------------------------------------------------------------
     </script>
     """
-    # Use a fixed height sidebar container for the timer
     with st.sidebar:
         st.markdown("### ⏲️ Exam Clock")
         components.html(timer_html, height=100)
@@ -142,7 +155,43 @@ st.title("FastExam")
 # SCREEN: START
 if not st.session_state.exam_started and not st.session_state.submitted:
     st.info(f"📋 Questions: **{total_qs}** | ⏳ Time: **{total_qs} Minutes**")
-    if st.button("🚀 Start Exam Now", use_container_width=True):
+    
+    # --- MINI GAME ADDED HERE ---
+    with st.expander("🎮 Warm-up Mini Game: Rock-Paper-Scissors", expanded=False):
+        st.write("Take a deep breath and play a quick game against the computer before you start!")
+        
+        choices =['🪨 Rock', '📄 Paper', '✂️ Scissors']
+        cols = st.columns(3)
+        
+        def play_rps(user_choice):
+            bot_choice = random.choice(choices)
+            if user_choice == bot_choice:
+                st.session_state.game_result = f"Computer chose {bot_choice}. It's a Tie! 🤝"
+            elif (user_choice == '🪨 Rock' and bot_choice == '✂️ Scissors') or \
+                 (user_choice == '📄 Paper' and bot_choice == '🪨 Rock') or \
+                 (user_choice == '✂️ Scissors' and bot_choice == '📄 Paper'):
+                st.session_state.game_result = f"Computer chose {bot_choice}. You Win! 🎉"
+            else:
+                st.session_state.game_result = f"Computer chose {bot_choice}. You Lose! 😢"
+
+        with cols[0]:
+            if st.button("🪨 Rock", use_container_width=True): play_rps('🪨 Rock')
+        with cols[1]:
+            if st.button("📄 Paper", use_container_width=True): play_rps('📄 Paper')
+        with cols[2]:
+            if st.button("✂️ Scissors", use_container_width=True): play_rps('✂️ Scissors')
+            
+        if st.session_state.game_result:
+            if "Win" in st.session_state.game_result:
+                st.success(st.session_state.game_result)
+            elif "Lose" in st.session_state.game_result:
+                st.error(st.session_state.game_result)
+            else:
+                st.info(st.session_state.game_result)
+    # ----------------------------
+
+    st.write("") # Spacer
+    if st.button("🚀 Start Exam Now", use_container_width=True, type="primary"):
         st.session_state.end_time = time.time() + time_limit_secs
         st.session_state.exam_started = True
         st.rerun()
@@ -207,6 +256,6 @@ elif st.session_state.submitted:
                 st.divider()
 
     if st.button("🔄 Try Again"):
-        for key in ['exam_started', 'submitted', 'end_time', 'user_answers', 'questions']:
+        for key in['exam_started', 'submitted', 'end_time', 'user_answers', 'questions', 'game_result']:
             if key in st.session_state: del st.session_state[key]
         st.rerun()
