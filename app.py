@@ -10,22 +10,44 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- 2. STYLING & FOOTER ---
+# --- 2. STYLING & FIXING VISIBILITY ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Footer Styling */
     .footer {
         position: fixed; left: 0; bottom: 0; width: 100%;
-        background-color: #f1f1f1; color: #333; text-align: center;
+        background-color: #f1f1f1 !important; color: #333 !important; text-align: center;
         padding: 10px; font-weight: bold; border-top: 2px solid #007bff; z-index: 100;
     }
-    .stRadio > label { font-size: 18px; font-weight: bold; color: #1E3A8A; }
+    
+    /* Timer Box - Fixed Visibility for Dark/Light Mode */
     .timer-container {
-        position: fixed; top: 10px; right: 10px;
-        background: white; padding: 10px; border: 2px solid #007bff;
-        border-radius: 10px; z-index: 1000; font-size: 20px; font-weight: bold;
+        position: fixed; 
+        top: 70px; 
+        right: 20px;
+        background-color: #ffeb3b !important; /* Bright Yellow Background */
+        color: #000000 !important;           /* Black Text */
+        padding: 15px; 
+        border: 3px solid #f44336;
+        border-radius: 12px; 
+        z-index: 9999; 
+        font-size: 22px; 
+        font-weight: bold;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+    }
+
+    .question-style {
+        font-size: 20px;
+        font-weight: 600;
+        color: #FFFFFF;
+        background-color: #1E3A8A;
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 20px;
     }
     </style>
     <div class="footer">Made by Imran</div>
@@ -42,31 +64,38 @@ if 'user_answers' not in st.session_state:
     st.session_state.user_answers = {}
 if 'questions' not in st.session_state:
     try:
-        # Load the CSV
         df = pd.read_csv("questions.csv")
-        # Store in session state to prevent reshuffling on every rerun
+        # Store questions in session to prevent shuffling on every click
         st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
-    except FileNotFoundError:
-        st.error("Error: 'questions.csv' not found. Please upload the file.")
+    except Exception as e:
+        st.error(f"Error: Ensure 'questions.csv' exists. ({e})")
         st.stop()
 
-# --- 4. TIMER LOGIC (JS Injection for smoothness) ---
+# --- 4. TIMER LOGIC (JavaScript) ---
 def display_timer(seconds_left):
-    # This JS keeps the timer ticking visually even when Streamlit is 'busy'
+    # JS countdown that works even if Python is busy
     timer_html = f"""
-        <div id="timer" class="timer-container">⏳ Time Left: <span id="time-display">--:--</span></div>
+        <div id="timer-box" class="timer-container">
+            ⏳ <span id="time-display">--:--</span>
+        </div>
         <script>
         var duration = {seconds_left};
         var display = document.querySelector('#time-display');
         var timer = duration, minutes, seconds;
-        var countdown = setInterval(function () {{
+        
+        var interval = setInterval(function () {{
             minutes = parseInt(timer / 60, 10);
             seconds = parseInt(timer % 60, 10);
+
             minutes = minutes < 10 ? "0" + minutes : minutes;
             seconds = seconds < 10 ? "0" + seconds : seconds;
+
             display.textContent = minutes + ":" + seconds;
+
             if (--timer < 0) {{
-                clearInterval(countdown);
+                clearInterval(interval);
+                display.textContent = "00:00";
+                // Trigger the hidden submit button if time runs out
                 window.parent.document.querySelector('button[kind="primary"]').click();
             }}
         }}, 1000);
@@ -75,131 +104,128 @@ def display_timer(seconds_left):
     st.markdown(timer_html, unsafe_allow_html=True)
 
 # --- 5. RESULT CARD GENERATOR ---
-def generate_result_text(score, total, df, user_answers):
+def generate_result_card(score, total, df, user_answers):
     perc = (score / total) * 100
-    text = f"--- SCIENCE EXAM PORTAL RESULT CARD ---\n"
-    text += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    text += f"Score: {score}/{total} ({perc:.1f}%)\n"
-    text += f"Status: {'PASSED' if perc >= 40 else 'FAILED'}\n"
-    text += "-"*40 + "\n\n"
+    card = f"FAST EXAM - RESULT CARD\n"
+    card += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    card += f"Final Score: {score} / {total} ({perc:.1f}%)\n"
+    card += "========================================\n\n"
     
-    text += "INCORRECT ANSWERS REVIEW:\n"
-    incorrect_count = 0
+    wrong_questions = []
     for i, row in df.iterrows():
         u_ans = user_answers.get(i)
         c_ans = row['Correct Answer']
         if str(u_ans) != str(c_ans):
-            incorrect_count += 1
-            text += f"Q{i+1}: {row['Question']}\n"
-            text += f"   - Your Answer: {u_ans if u_ans else 'No Answer'}\n"
-            text += f"   - Correct Answer: {c_ans}\n"
-            text += "-"*20 + "\n"
+            wrong_questions.append({
+                "q": row['Question'],
+                "mine": u_ans if u_ans else "Not Answered",
+                "correct": c_ans
+            })
             
-    if incorrect_count == 0:
-        text += "Excellent! You got everything correct."
-    
-    return text
+    if not wrong_questions:
+        card += "EXCELLENT! You got every question correct.\n"
+    else:
+        card += "REVIEW OF INCORRECT ANSWERS:\n\n"
+        for idx, item in enumerate(wrong_questions):
+            card += f"{idx+1}) QUESTION: {item['q']}\n"
+            card += f"   - Your Answer: {item['mine']}\n"
+            card += f"   - Right Answer: {item['correct']}\n"
+            card += "----------------------------------------\n"
+            
+    return card
 
-# --- 6. APP FLOW ---
+# --- 6. MAIN APP FLOW ---
 
 df = st.session_state.questions
 total_qs = len(df)
-time_limit_secs = total_qs * 60  # Auto-calculate: 1 min per question
+time_limit_secs = total_qs * 60  # Auto: 1 min per question
 
 st.title("FastExam")
 
-# SCENE 1: Start Screen
+# SCREEN 1: START
 if not st.session_state.exam_started and not st.session_state.submitted:
-    st.info(f"📋 Exam contains **{total_qs} questions**.")
-    st.info(f"⏳ You have **{total_qs} minutes** total.")
-    if st.button("🚀 Start Exam Now"):
+    st.markdown(f"### Total Questions found: `{total_qs}`")
+    st.write(f"⏱️ You will have **{total_qs} minutes** to complete the exam.")
+    st.info("The timer will appear in the top-right corner once you start.")
+    
+    if st.button("🚀 Start Exam Now", use_container_width=True):
         st.session_state.end_time = time.time() + time_limit_secs
         st.session_state.exam_started = True
         st.rerun()
 
-# SCENE 2: The Exam
+# SCREEN 2: EXAM IN PROGRESS
 elif st.session_state.exam_started and not st.session_state.submitted:
-    # Calculate time remaining for the JS timer
-    now = time.time()
-    remaining = int(st.session_state.end_time - now)
-
-    # Force auto-submit if time is actually up
+    # Calculate time remaining
+    remaining = int(st.session_state.end_time - time.time())
+    
+    # Check if time is up
     if remaining <= 0:
         st.session_state.submitted = True
         st.session_state.exam_started = False
         st.rerun()
 
+    # Show visible JS timer
     display_timer(remaining)
 
-    # Question Form
-    with st.form("exam_form"):
-        current_answers = {}
+    # Use form to prevent laggy reruns on every selection
+    with st.form("quiz_form"):
+        current_selection = {}
         for i, row in df.iterrows():
-            st.markdown(f"**Q{i+1}. {row['Question']}**")
+            st.markdown(f"<div class='question-style'>Q{i+1}. {row['Question']}</div>", unsafe_allow_html=True)
             options = [row['Option A'], row['Option B'], row['Option C'], row['Option D']]
-            current_answers[i] = st.radio(
-                f"Select answer for {i}", options, 
+            current_selection[i] = st.radio(
+                f"Select for Q{i}", options, 
                 index=None, key=f"q{i}", label_visibility="collapsed"
             )
-            st.write("---")
+            st.write("")
         
-        # This button triggers the submission
-        submit_button = st.form_submit_button("Submit Exam", type="primary")
-        if submit_button:
-            st.session_state.user_answers = current_answers
+        # This button is used for manual submission and targeted by the timer JS
+        submitted_manually = st.form_submit_button("Submit Exam", type="primary")
+        if submitted_manually:
+            st.session_state.user_answers = current_selection
             st.session_state.submitted = True
             st.session_state.exam_started = False
             st.rerun()
 
-# SCENE 3: Results Screen
+# SCREEN 3: RESULTS
 elif st.session_state.submitted:
-    st.header("📊 Exam Result")
+    st.header("📊 Exam Results")
     
-    # Calculate Score
     score = 0
-    user_ans = st.session_state.user_answers
+    u_ans = st.session_state.user_answers
     for i, row in df.iterrows():
-        if str(user_ans.get(i)) == str(row['Correct Answer']):
+        if str(u_ans.get(i)) == str(row['Correct Answer']):
             score += 1
             
     perc = (score / total_qs) * 100
-    st.subheader(f"Your Final Score: {score} / {total_qs}")
-    
-    if perc >= 80: st.success(f"Grade: Excellent ({perc:.1f}%) 🌟")
-    elif perc >= 40: st.warning(f"Grade: Passed ({perc:.1f}%) 👍")
-    else: st.error(f"Grade: Failed ({perc:.1f}%) 📚")
+    st.subheader(f"Score: {score} / {total_qs} ({perc:.1f}%)")
 
     # Result Card Download
-    result_card_data = generate_result_text(score, total_qs, df, user_ans)
+    result_card_txt = generate_result_card(score, total_qs, df, u_ans)
     st.download_button(
-        label="📥 Download Result Card",
-        data=result_card_data,
-        file_name=f"Result_Card_{datetime.now().strftime('%H%M%S')}.txt",
+        label="📥 Download Result Card (TXT File)",
+        data=result_card_txt,
+        file_name=f"FastExam_Result_{datetime.now().strftime('%M%S')}.txt",
         mime="text/plain"
     )
 
-    # Review Section
-    with st.expander("🔍 Review Incorrect Answers"):
-        found_wrong = False
+    # UI Review of Wrong Answers
+    with st.expander("🔍 View All Incorrect Answers"):
+        has_wrong = False
         for i, row in df.iterrows():
-            u_ans = user_ans.get(i)
-            c_ans = row['Correct Answer']
-            if str(u_ans) != str(c_ans):
-                found_wrong = True
-                st.markdown(f"**Q{i+1}: {row['Question']}**")
-                st.write(f"❌ Your Answer: {u_ans}")
-                st.write(f"✅ Correct Answer: {c_ans}")
-                st.write("---")
-        if not found_wrong:
-            st.write("No incorrect answers to show!")
+            if str(u_ans.get(i)) != str(row['Correct Answer']):
+                has_wrong = True
+                st.error(f"**Q{i+1}: {row['Question']}**")
+                st.write(f"❌ Your Answer: {u_ans.get(i)}")
+                st.success(f"✅ Correct Answer: {row['Correct Answer']}")
+                st.divider()
+        if not has_wrong:
+            st.balloons()
+            st.success("Perfect Score! No errors to show.")
 
-    if st.button("🔄 Take Exam Again"):
-        st.session_state.exam_started = False
-        st.session_state.submitted = False
-        st.session_state.end_time = None
-        st.session_state.user_answers = {}
-        # Reshuffle questions for new attempt
-        st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
+    if st.button("🔄 Restart Exam"):
+        # Reset everything
+        for key in ['exam_started', 'submitted', 'end_time', 'user_answers', 'questions']:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
-
-
