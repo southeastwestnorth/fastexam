@@ -5,7 +5,7 @@ from datetime import datetime
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Science Exam Portal",
+    page_title="FastExam",
     page_icon="🔬",
     layout="centered"
 )
@@ -28,7 +28,7 @@ st.markdown("""
         border-radius: 10px; z-index: 1000; font-size: 20px; font-weight: bold;
     }
     </style>
-    <div class="footer">Developed for Students | Made by Imran</div>
+    <div class="footer">Made by Imran</div>
     """, unsafe_allow_html=True)
 
 # --- 3. SESSION STATE INITIALIZATION ---
@@ -201,3 +201,4 @@ elif st.session_state.submitted:
         # Reshuffle questions for new attempt
         st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
         st.rerun()
+
