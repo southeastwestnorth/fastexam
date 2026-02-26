@@ -106,7 +106,7 @@ df = st.session_state.questions
 total_qs = len(df)
 time_limit_secs = total_qs * 60  # Auto-calculate: 1 min per question
 
-st.title("🧪 Science Model Test")
+st.title("FastExam")
 
 # SCENE 1: Start Screen
 if not st.session_state.exam_started and not st.session_state.submitted:
@@ -201,4 +201,5 @@ elif st.session_state.submitted:
         # Reshuffle questions for new attempt
         st.session_state.questions = df.sample(frac=1).reset_index(drop=True)
         st.rerun()
+
 
