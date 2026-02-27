@@ -7,7 +7,7 @@ def require_login():
         
     if not st.session_state.student_name:
         st.markdown("### 🎓 Welcome to FastExam Portal")
-        name = st.text_input("Please enter your Full Name to begin:")
+        name = st.text_input("Please enter your name to begin:")
         
         if st.button("Login & Continue", type="primary"):
             if name.strip():
@@ -16,3 +16,4 @@ def require_login():
             else:
                 st.error("Name cannot be empty.")
         st.stop() # Stops the rest of the app from running until logged in
+
